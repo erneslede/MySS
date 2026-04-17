@@ -1,6 +1,8 @@
+# Problema 1 con tiempos constantes y salida en forma de tabla
+
 import pandas as pd
 
-# Parámetros de la simulación
+# Vector inicial
 t_actual = 0
 t_max = 500
 estado_servidor = 0  # 0 = libre, 1 = ocupado
