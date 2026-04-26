@@ -31,11 +31,25 @@ prox_regreso_servidor = float('inf')
 resultados = []
 
 while t_actual < t_max:
-    # Próximo evento
-    prox_evento = min(prox_llegada, prox_fin_servicio, prox_salida_servidor, prox_regreso_servidor)
-    t_actual = prox_evento
+    # Seleccionar próximo evento
+    siguiente_evento = min(prox_llegada, prox_fin_servicio, prox_salida_servidor, prox_regreso_servidor)
 
-    if t_actual == prox_llegada:
+    if siguiente_evento >= t_max:
+        break
+
+    t_actual = siguiente_evento
+
+    # determinar tipo de evento comparando valores, no con == sobre t_actual (evita fallo por floats y da prioridad correcta)
+    if siguiente_evento == prox_salida_servidor:
+        tipo_evento = "salida_servidor"
+    elif siguiente_evento == prox_fin_servicio:
+        tipo_evento = "fin_servicio"
+    elif siguiente_evento == prox_regreso_servidor:
+        tipo_evento = "regreso_servidor"
+    else:
+        tipo_evento = "llegada"
+
+    if tipo_evento == "llegada":
         prox_llegada = t_actual + tiempo_llegada()
         if servidor_presente and estado_servidor == 0:
             estado_servidor = 1
@@ -44,17 +58,18 @@ while t_actual < t_max:
             clientes_en_cola += 1
         resultados.append([round(t_actual,1), "Llegada", clientes_en_cola, estado_servidor, servidor_presente])
 
-    elif t_actual == prox_fin_servicio:
+    elif tipo_evento == "fin_servicio":
+        estado_servidor = 0
+        prox_fin_servicio = float('inf')
+        resultados.append([round(t_actual,1), "Fin de Servicio", clientes_en_cola, estado_servidor, servidor_presente])
         if servidor_presente:
             if clientes_en_cola > 0:
                 clientes_en_cola -= 1
-                prox_fin_servicio = t_actual + tiempo_servicio()
-            else:
-                estado_servidor = 0
-                prox_fin_servicio = float('inf')
-        resultados.append([round(t_actual,1), "Fin de Servicio", clientes_en_cola, estado_servidor, servidor_presente])
+                estado_servidor = 1
+                prox_fin_servicio = t_actual + tiempo_servicio()  
+            resultados.append([round(t_actual,1), "Reocupación", clientes_en_cola, estado_servidor, servidor_presente])
 
-    elif t_actual == prox_salida_servidor:
+    elif tipo_evento == "salida_servidor":
         servidor_presente = False
         if estado_servidor == 1 and prox_fin_servicio != float('inf'):
             # Guardamos cuánto faltaba del servicio
@@ -65,7 +80,7 @@ while t_actual < t_max:
         prox_salida_servidor = float('inf')
         resultados.append([round(t_actual,1), "Salida del Servidor", clientes_en_cola, estado_servidor, servidor_presente])
 
-    elif t_actual == prox_regreso_servidor:
+    elif tipo_evento == "regreso_servidor":
         servidor_presente = True
         if tiempo_restante_servicio > 0:
             # Retoma el servicio interrumpido
