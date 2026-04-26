@@ -1,18 +1,18 @@
-# Problema 3 con tiempos reales
+# Problema 3 con tiempos aleatorios y abandonos corregidos
 
 import pandas as pd
 import random
 
-# Parámetros de la simulación
+# Vector inicial
 t_actual = 0
-t_max = 2000
+t_max = 1000
 estado_servidor = 0  # 0 = libre, 1 = ocupado
-clientes_en_cola = []  # guardamos hora de llegada de cada cliente
+clientes_en_cola = []  # guardamos (hora_llegada, hora_abandono)
 prox_llegada = random.uniform(30, 60)  # llegada inicial entre 30 y 60 segundos
 prox_fin_servicio = float('inf')
 
-# Tiempo máximo de espera antes de abandono (10 minutos = 600s)
-tiempo_max_espera = 600
+# Tiempo máximo de espera antes de abandono
+tiempo_max_espera = 5
 
 # Funciones generadoras de tiempos
 def tiempo_llegada():
@@ -24,14 +24,10 @@ def tiempo_servicio():
 resultados = []
 
 while t_actual < t_max:
-    # Calcular posibles abandonos
+    # Calcular próximo abandono (el más cercano de la cola)
     prox_abandono = float('inf')
     if clientes_en_cola:
-        # Verificamos si algún cliente ya superó el tiempo máximo de espera
-        for llegada in clientes_en_cola:
-            if t_actual - llegada >= tiempo_max_espera:
-                prox_abandono = t_actual
-                break
+        prox_abandono = min([abandono for _, abandono in clientes_en_cola])
 
     # Seleccionar próximo evento
     siguiente_evento = min(prox_llegada, prox_fin_servicio, prox_abandono)
@@ -43,23 +39,29 @@ while t_actual < t_max:
             estado_servidor = 1
             prox_fin_servicio = t_actual + tiempo_servicio()
         else:
-            clientes_en_cola.append(t_actual)
-        resultados.append([t_actual, "Llegada", len(clientes_en_cola), estado_servidor])
+            # Guardamos hora de llegada y hora de abandono
+            clientes_en_cola.append((t_actual, t_actual + tiempo_max_espera))
+        resultados.append([round(t_actual,1), "Llegada", len(clientes_en_cola), estado_servidor])
 
     elif t_actual == prox_fin_servicio:
+        estado_servidor = 0
+        resultados.append([round(t_actual,1), "Fin de Servicio", len(clientes_en_cola), estado_servidor])
         if clientes_en_cola:
-            llegada_cliente = clientes_en_cola.pop(0)
+            llegada_cliente, abandono_cliente = clientes_en_cola.pop(0)
             estado_servidor = 1
             prox_fin_servicio = t_actual + tiempo_servicio()
+            resultados.append([round(t_actual,1), "Reocupación", len(clientes_en_cola), estado_servidor])
         else:
             estado_servidor = 0
             prox_fin_servicio = float('inf')
-        resultados.append([t_actual, "Fin de Servicio", len(clientes_en_cola), estado_servidor])
 
     elif t_actual == prox_abandono:
-        # El primer cliente en cola abandona
-        clientes_en_cola.pop(0)
-        resultados.append([t_actual, "Abandono", len(clientes_en_cola), estado_servidor])
+        # Eliminamos el cliente cuyo abandono coincide con t_actual
+        for i, (llegada, abandono) in enumerate(clientes_en_cola):
+            if abandono == t_actual:
+                clientes_en_cola.pop(i)
+                break
+        resultados.append([round(t_actual,1), "Abandono", len(clientes_en_cola), estado_servidor])
 
 # Crear tabla con pandas
 df = pd.DataFrame(resultados, columns=["Tiempo", "Evento", "Clientes en cola", "Estado del servidor"])
