@@ -15,34 +15,33 @@ from datetime import datetime, timedelta
 # =============================================================================
 
 HORA_INICIO = datetime(2024, 1, 1, 8, 0, 0)   # inicio de simulación: 08:00:00
-DURACION    = timedelta(hours=2)               # horizonte de simulación
+DURACION    = timedelta(hours=6)               # horizonte de simulación
 T_MAX       = HORA_INICIO + DURACION
 
 # Flags de características — True/False
-CON_AUSENCIAS_SERVIDOR = True
+CON_AUSENCIAS_SERVIDOR = False
 CON_ABANDONO           = True
 CON_PRIORIDAD          = False
-CON_ZONA_SEGURIDAD     = False
-
+CON_ZONA_SEGURIDAD     = True
 # Tiempos de llegada — en segundos
 # Si CON_PRIORIDAD = False se usa TLL, si = True se usan TLL_A y TLL_B
 TLL_MIN,   TLL_MAX   = 60, 60
-TLL_A_MIN, TLL_A_MAX = 20, 40   # llegadas tipo A (alta prioridad)
-TLL_B_MIN, TLL_B_MAX = 30, 60   # llegadas tipo B (baja prioridad)
+TLL_A_MIN, TLL_A_MAX = 60, 60   # llegadas tipo A (alta prioridad)
+TLL_B_MIN, TLL_B_MAX = 60, 60   # llegadas tipo B (baja prioridad)
 
 # Tiempo de servicio — en segundos
 TS_MIN,  TS_MAX  = 60, 60
 
 # Ausencias del servidor (CON_AUSENCIAS_SERVIDOR) — en segundos
 TTRAB_MIN, TTRAB_MAX = 60, 60   # tiempo que trabaja antes de salir
-TDES_MIN,  TDES_MAX  = 60, 60   # tiempo que dura la ausencia
+TDES_MIN,  TDES_MAX  = 30, 30   # tiempo que dura la ausencia
 
 # Abandono (CON_ABANDONO) — en segundos
 # Para espera fija poner ambos iguales, ej: TESP_MIN = TESP_MAX = 20
-TESP_MIN, TESP_MAX = 600, 600     # tiempo máximo de espera en cola
+TESP_MIN, TESP_MAX = 0, 0     # tiempo máximo de espera en cola
 
 # Zona de seguridad (CON_ZONA_SEGURIDAD) — en segundos
-TZONA_MIN, TZONA_MAX = 5, 15    # tiempo de tránsito cola -> PS
+TZONA_MIN, TZONA_MAX = 60, 60    # tiempo de tránsito cola -> PS
 
 # =============================================================================
 # GENERADORES
@@ -190,14 +189,37 @@ resultados = []
 
 def registrar(t, evento):
     """Registra el estado completo del sistema en el momento del evento."""
-    fila = [fmt(t), evento, len(cola_A)]
-    if CON_PRIORIDAD:
-        fila.append(len(cola_B))
-    fila.append("Ocupado" if estado_servidor == 1 else "Libre")
-    if CON_AUSENCIAS_SERVIDOR:
-        fila.append("Presente" if servidor_presente else "Ausente")
+    if not servidor_presente:
+        ps_str = "[X]"
+    elif estado_servidor == 1:
+        ps_str = "[O]"
+    else:
+        ps_str = "[ ]"
+        
+    # Estructura del gráfico para que soporte la cola grande
+    total_cola = len(cola_A) + len(cola_B)
+    if total_cola > 8:
+        graf = f"{ps_str} " + "O " * 6 + f"... (+{total_cola - 6})"
+    else:
+        graf = ps_str + (" O" * total_cola if total_cola > 0 else "")
+
+    est_srv_num = 1 if estado_servidor == 1 else 0
+    srv_pres_num = 1 if servidor_presente else 0
+
+    fila = [
+        fmt(t),
+        fmt(prox_llegada_A) if prox_llegada_A != INF else "*",
+        fmt(prox_fin_servicio) if prox_fin_servicio != INF else "*",
+        evento,
+        len(cola_A), #Se puede sumar len(cola_B) si activamos prioridad
+        est_srv_num,
+        srv_pres_num
+    ]
+    # Si tenemos zona de seguridad activa, guardamos su estado numérico
     if CON_ZONA_SEGURIDAD:
-        fila.append("Ocupada" if estado_zona == 1 else "Libre")
+        fila.append(1 if estado_zona == 1 else 0)
+        
+    fila.append(graf)
     resultados.append(fila)
 
 # =============================================================================
@@ -333,17 +355,40 @@ while t_actual < T_MAX:
 # TABLA DE RESULTADOS
 # =============================================================================
 
-columnas = ["Hora", "Evento", "Cola A" if CON_PRIORIDAD else "Clientes en cola"]
-if CON_PRIORIDAD:
-    columnas.append("Cola B")
-columnas.append("Estado servidor")
-if CON_AUSENCIAS_SERVIDOR:
-    columnas.append("Servidor presente")
+headers = [
+    "Hora", 
+    "Próxima llegada", 
+    "Próximo fin de servicio", 
+    "Evento", 
+    "Clientes en cola", 
+    "Estado servidor", 
+    "Servidor presente"
+]
 if CON_ZONA_SEGURIDAD:
-    columnas.append("Estado zona")
+    headers.append("Zona seg.")
+headers.append("Gráfico")
 
-df = pd.DataFrame(resultados, columns=columnas)
-print(df.to_string(index=False))
+# Definimos los anchos fijos de cada columna para que NADA se mueva
+# Los números representan la cantidad de caracteres que reservamos para cada columna
+anchos = [10, 18, 26, 38, 18, 17, 18]
+if CON_ZONA_SEGURIDAD:
+    anchos.append(11)
+anchos.append(20) # Ancho para el gráfico
+
+plantilla = " ".join([f"{{:<{a}}}" for a in anchos])
+
+print("\n" + "=" * sum(anchos))
+# Imprimir encabezados
+print(plantilla.format(*headers))
+print("-" * sum(anchos))
+
+# Imprimir cada fila perfectamente alineada
+for fila in resultados:
+    # Convertimos todos los elementos a string para el formateador
+    fila_str = [str(elemento) for elemento in fila]
+    print(plantilla.format(*fila_str))
+
+print("=" * sum(anchos))    
 
 # =============================================================================
 # RESPUESTAS
@@ -351,13 +396,13 @@ print(df.to_string(index=False))
 
 print()
 print("=" * 55)
-print("  RESPUESTAS")
+print("   RESPUESTAS")
 print("=" * 55)
-print(f"  a) Abandonos en la primera hora")
-print(f"     ({fmt(HORA_INICIO)} - {fmt(HORA_UNA_HORA)}): {abandonos_primera_hora} cliente/s")
+print(f"   a) Abandonos en la primera hora")
+print(f"      ({fmt(HORA_INICIO)} - {fmt(HORA_UNA_HORA)}): {abandonos_primera_hora} cliente/s")
 print()
 if respuesta_b_registrada:
-    print(f"  b) Clientes atendidos al inicio del 2do descanso: {atendidos_segundo_desc}")
+    print(f"   b) Clientes atendidos al inicio del 2do descanso: {atendidos_segundo_desc}")
 else:
-    print(f"  b) El 2do descanso no ocurrió en el horizonte de simulación")
+    print(f"   b) El 2do descanso no ocurrió en el horizonte de simulación")
 print("=" * 55)
