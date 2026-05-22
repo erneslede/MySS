@@ -15,14 +15,14 @@ from datetime import datetime, timedelta
 # =============================================================================
 
 HORA_INICIO = datetime(2024, 1, 1, 8, 0, 0)   # inicio de simulación: 08:00:00
-DURACION    = timedelta(hours=6)               # horizonte de simulación
+DURACION    = timedelta(hours=3)               # horizonte de simulación
 T_MAX       = HORA_INICIO + DURACION
 
 # Flags de características — True/False
-CON_AUSENCIAS_SERVIDOR = False
+CON_AUSENCIAS_SERVIDOR = True
 CON_ABANDONO           = True
 CON_PRIORIDAD          = False
-CON_ZONA_SEGURIDAD     = True
+CON_ZONA_SEGURIDAD     = False
 # Tiempos de llegada — en segundos
 # Si CON_PRIORIDAD = False se usa TLL, si = True se usan TLL_A y TLL_B
 TLL_MIN,   TLL_MAX   = 60, 60
@@ -30,15 +30,15 @@ TLL_A_MIN, TLL_A_MAX = 60, 60   # llegadas tipo A (alta prioridad)
 TLL_B_MIN, TLL_B_MAX = 60, 60   # llegadas tipo B (baja prioridad)
 
 # Tiempo de servicio — en segundos
-TS_MIN,  TS_MAX  = 60, 60
+TS_MIN,  TS_MAX  = 40, 60
 
 # Ausencias del servidor (CON_AUSENCIAS_SERVIDOR) — en segundos
-TTRAB_MIN, TTRAB_MAX = 60, 60   # tiempo que trabaja antes de salir
+TTRAB_MIN, TTRAB_MAX = 300, 300   # tiempo que trabaja antes de salir
 TDES_MIN,  TDES_MAX  = 30, 30   # tiempo que dura la ausencia
 
 # Abandono (CON_ABANDONO) — en segundos
 # Para espera fija poner ambos iguales, ej: TESP_MIN = TESP_MAX = 20
-TESP_MIN, TESP_MAX = 0, 0     # tiempo máximo de espera en cola
+TESP_MIN, TESP_MAX = 180, 180     # tiempo máximo de espera en cola
 
 # Zona de seguridad (CON_ZONA_SEGURIDAD) — en segundos
 TZONA_MIN, TZONA_MAX = 60, 60    # tiempo de tránsito cola -> PS
@@ -61,9 +61,9 @@ def gen_tzona():  return timedelta(seconds=random.uniform(TZONA_MIN, TZONA_MAX))
 # =============================================================================
 
 t_actual          = HORA_INICIO
-estado_servidor   = 0       # 0 = libre, 1 = ocupado
+estado_servidor   = 1       # 0 = libre, 1 = ocupado
 estado_zona       = 0       # 0 = libre, 1 = ocupado  (zona de seguridad)
-servidor_presente = True    # para ausencias
+servidor_presente = False    # para ausencias
 
 # Cola única o dos colas según prioridad
 # Cada entrada es (hora_llegada, hora_abandono) si CON_ABANDONO, si no (hora_llegada,)
@@ -78,12 +78,14 @@ tiempo_restante_servicio = timedelta(0)
 # CONTADORES
 # =============================================================================
 
-HORA_UNA_HORA          = HORA_INICIO + timedelta(hours=1)
+HORA_UNA_HORA          = HORA_INICIO + timedelta(hours=2)
 
 abandonos_primera_hora = 0    # a) abandonos dentro de la primera hora
 atendidos_segundo_desc = 0    # b) clientes atendidos al inicio del 2do descanso
 num_descansos          = 0    # cantidad de descansos iniciados
 respuesta_b_registrada = False
+total_atendidos = 0
+total_abandonos = 0
 
 # =============================================================================
 # INICIALIZACIÓN DE EVENTOS
@@ -97,6 +99,11 @@ prox_fin_servicio    = INF
 prox_llegada_ps      = INF   # zona de seguridad: cuando el cliente llega al PS
 prox_salida_servidor = HORA_INICIO + gen_ttrab() if CON_AUSENCIAS_SERVIDOR else INF
 prox_regreso_servidor= INF
+
+# Ajuste por vector inicial
+if CON_AUSENCIAS_SERVIDOR and not servidor_presente:
+    prox_regreso_servidor = HORA_INICIO + gen_tdes()
+    prox_salida_servidor  = INF
 
 # =============================================================================
 # FUNCIONES AUXILIARES
@@ -175,7 +182,7 @@ def cargar_cola_inicial(n_clientes, segundos_esperados):
             prox_fin_servicio = HORA_INICIO + gen_ts()
 
 # Vector inicial: 100 clientes, todos llevan 10 segundos esperando
-cargar_cola_inicial(n_clientes=100, segundos_esperados=10)
+# cargar_cola_inicial(n_clientes=100, segundos_esperados=10)
 
 def fmt(t):
     """Formatea un datetime como HH:MM:SS para la tabla."""
@@ -225,6 +232,8 @@ def registrar(t, evento):
 # =============================================================================
 # LOOP PRINCIPAL
 # =============================================================================
+
+registrar(t_actual, "---VECTOR INICIAL---") # Imprime los valores del vector inicial como un evento
 
 while t_actual < T_MAX:
 
@@ -290,6 +299,7 @@ while t_actual < T_MAX:
 
     # ── FIN DE SERVICIO ───────────────────────────────────────────────────────
     elif tipo_evento == "fin_servicio":
+        total_atendidos += 1
         estado_servidor   = 0
         estado_zona       = 0
         prox_fin_servicio = INF
@@ -342,6 +352,7 @@ while t_actual < T_MAX:
 
     # ── ABANDONO ──────────────────────────────────────────────────────────────
     elif tipo_evento == "abandono":
+        total_abandonos += 1
         if prox_abandono_A <= prox_abandono_B:
             eliminar_abandono(cola_A, prox_abandono_A)
             registrar(t_actual, "Abandono A" if CON_PRIORIDAD else "Abandono")
@@ -405,4 +416,12 @@ if respuesta_b_registrada:
     print(f"   b) Clientes atendidos al inicio del 2do descanso: {atendidos_segundo_desc}")
 else:
     print(f"   b) El 2do descanso no ocurrió en el horizonte de simulación")
+print("=" * 55)
+
+print()
+print("=" * 55)
+print("   RESULTADOS TOTALES")
+print("=" * 55)
+print(f"   Total de clientes/piezas atendidos: {total_atendidos}")
+print(f"   Total de abandonos: {total_abandonos}")
 print("=" * 55)
