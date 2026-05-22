@@ -19,13 +19,13 @@ DURACION    = timedelta(hours=3)               # horizonte de simulación
 T_MAX       = HORA_INICIO + DURACION
 
 # Flags de características — True/False
-CON_AUSENCIAS_SERVIDOR = True
+CON_AUSENCIAS_SERVIDOR = False
 CON_ABANDONO           = True
 CON_PRIORIDAD          = False
 CON_ZONA_SEGURIDAD     = False
 # Tiempos de llegada — en segundos
 # Si CON_PRIORIDAD = False se usa TLL, si = True se usan TLL_A y TLL_B
-TLL_MIN,   TLL_MAX   = 60, 60
+TLL_MIN,   TLL_MAX   = 40, 60
 TLL_A_MIN, TLL_A_MAX = 60, 60   # llegadas tipo A (alta prioridad)
 TLL_B_MIN, TLL_B_MAX = 60, 60   # llegadas tipo B (baja prioridad)
 
@@ -38,7 +38,7 @@ TDES_MIN,  TDES_MAX  = 30, 30   # tiempo que dura la ausencia
 
 # Abandono (CON_ABANDONO) — en segundos
 # Para espera fija poner ambos iguales, ej: TESP_MIN = TESP_MAX = 20
-TESP_MIN, TESP_MAX = 180, 180     # tiempo máximo de espera en cola
+TESP_MIN, TESP_MAX = 0, 0     # tiempo máximo de espera en cola
 
 # Zona de seguridad (CON_ZONA_SEGURIDAD) — en segundos
 TZONA_MIN, TZONA_MAX = 60, 60    # tiempo de tránsito cola -> PS
@@ -61,9 +61,9 @@ def gen_tzona():  return timedelta(seconds=random.uniform(TZONA_MIN, TZONA_MAX))
 # =============================================================================
 
 t_actual          = HORA_INICIO
-estado_servidor   = 1       # 0 = libre, 1 = ocupado
+estado_servidor   = 0       # 0 = libre, 1 = ocupado
 estado_zona       = 0       # 0 = libre, 1 = ocupado  (zona de seguridad)
-servidor_presente = False    # para ausencias
+servidor_presente = True    # para ausencias
 
 # Cola única o dos colas según prioridad
 # Cada entrada es (hora_llegada, hora_abandono) si CON_ABANDONO, si no (hora_llegada,)
@@ -405,23 +405,33 @@ print("=" * sum(anchos))
 # RESPUESTAS
 # =============================================================================
 
-print()
-print("=" * 55)
-print("   RESPUESTAS")
-print("=" * 55)
-print(f"   a) Abandonos en la primera hora")
-print(f"      ({fmt(HORA_INICIO)} - {fmt(HORA_UNA_HORA)}): {abandonos_primera_hora} cliente/s")
-print()
-if respuesta_b_registrada:
-    print(f"   b) Clientes atendidos al inicio del 2do descanso: {atendidos_segundo_desc}")
-else:
-    print(f"   b) El 2do descanso no ocurrió en el horizonte de simulación")
-print("=" * 55)
+# print()
+# print("=" * 55)
+# print("   RESPUESTAS")
+# print("=" * 55)
+# print(f"   a) Abandonos hasta las {fmt(HORA_UNA_HORA)}")
+# print(f"      ({fmt(HORA_INICIO)} - {fmt(HORA_UNA_HORA)}): {abandonos_primera_hora} cliente/s")
+# print()
+# if respuesta_b_registrada:
+#     print(f"   b) Clientes atendidos al inicio del 2do descanso: {atendidos_segundo_desc}")
+# else:
+#     print(f"   b) El 2do descanso no ocurrió en el horizonte de simulación")
+# print("=" * 55)
 
 print()
 print("=" * 55)
 print("   RESULTADOS TOTALES")
 print("=" * 55)
 print(f"   Total de clientes/piezas atendidos: {total_atendidos}")
-print(f"   Total de abandonos: {total_abandonos}")
+print(f"   Total de abandonos:                 {total_abandonos}")
+total_ingresados = total_atendidos + total_abandonos
+if total_ingresados > 0:
+    pct_atendidos = total_atendidos / total_ingresados * 100
+    pct_abandonos = total_abandonos / total_ingresados * 100
+    print(f"   Total ingresados al sistema:        {total_ingresados}")
+    print(f"   % atendidos:                        {pct_atendidos:.1f}%")
+    print(f"   % abandonos:                        {pct_abandonos:.1f}%")
+    print(f"   Relación atendidos/abandonos:       {total_atendidos}/{total_abandonos}")
+    if total_abandonos > 0:
+        print(f"   Por cada abandono se atendieron:    {total_atendidos/total_abandonos:.2f} clientes")
 print("=" * 55)
