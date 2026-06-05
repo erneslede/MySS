@@ -22,40 +22,44 @@ HORA_INICIO = datetime(2024, 1, 1, 8, 0, 0)
 DURACION    = timedelta(hours=3)
 T_MAX       = HORA_INICIO + DURACION
 
-N_PUESTOS   = 2   # número de puestos de servicio
+N_PUESTOS   = 3   # número de puestos de servicio
 
 # Flags heredados
-CON_AUSENCIAS_SERVIDOR = True
+CON_AUSENCIAS_SERVIDOR = False
 CON_ABANDONO           = True
 CON_PRIORIDAD          = False
 CON_ZONA_SEGURIDAD     = False
 
 # Flags de modalidad — activar exactamente uno
 MODALIDAD_INDEPENDIENTE = False
-MODALIDAD_PARALELO      = True
-MODALIDAD_SERIE         = False
+MODALIDAD_PARALELO      = False
+MODALIDAD_SERIE         = True
 
 # Tiempos de llegada — en segundos
 TLL_MIN,   TLL_MAX   = 40, 60
 TLL_A_MIN, TLL_A_MAX = 40, 60
 TLL_B_MIN, TLL_B_MAX = 60, 90
 
-# Tiempo de servicio — en segundos
-TS_MIN,  TS_MAX  = 40, 60
+# Tiempo de servicio — en segundos (independiente por puesto)
+# Cada entrada corresponde a un puesto: [PS1, PS2, PS3, ...]
+# Si se agregan puestos (N_PUESTOS > 3), extender estas listas en consecuencia
+TS_MIN = [300, 900]
+TS_MAX = [360, 1200]
 
 # Ausencias — en segundos (independiente por puesto)
 # Cada entrada corresponde a un puesto: [PS1, PS2, PS3, ...]
 # Si se agregan puestos (N_PUESTOS > 3), extender estas listas en consecuencia
-TTRAB_MIN = [120, 150]   # tiempo de trabajo antes de salir, por puesto
-TTRAB_MAX = [180, 210]
-TDES_MIN  = [ 30,  20]   # duración de la ausencia, por puesto
-TDES_MAX  = [ 60,  40]
+TTRAB_MIN = [120, 150, 180]   # tiempo de trabajo antes de salir, por puesto
+TTRAB_MAX = [180, 210, 240]
+TDES_MIN  = [ 30,  20,  40]   # duración de la ausencia, por puesto
+TDES_MAX  = [ 60,  40,  60]
 
 # Abandono — en segundos (aleatorio por cliente)
 TESP_MIN, TESP_MAX = 60, 180
 
-# Zona de seguridad — en segundos
-TZONA_MIN, TZONA_MAX = 10, 20
+# Capacidad máxima de la cola global (None = sin límite)
+# Cuando la cola está llena, el cliente es rechazado/bloqueado
+CAP_COLA = 10
 
 # =============================================================================
 # GENERADORES
@@ -64,7 +68,7 @@ TZONA_MIN, TZONA_MAX = 10, 20
 def gen_tll():   return timedelta(seconds=random.uniform(TLL_MIN,   TLL_MAX))
 def gen_tll_A(): return timedelta(seconds=random.uniform(TLL_A_MIN, TLL_A_MAX))
 def gen_tll_B(): return timedelta(seconds=random.uniform(TLL_B_MIN, TLL_B_MAX))
-def gen_ts():    return timedelta(seconds=random.uniform(TS_MIN,    TS_MAX))
+def gen_ts(p):   return timedelta(seconds=random.uniform(TS_MIN[p],  TS_MAX[p]))
 def gen_ttrab(p): return timedelta(seconds=random.uniform(TTRAB_MIN[p], TTRAB_MAX[p]))
 def gen_tdes(p):  return timedelta(seconds=random.uniform(TDES_MIN[p],  TDES_MAX[p]))
 def gen_tesp():  return timedelta(seconds=random.uniform(TESP_MIN,  TESP_MAX))
@@ -127,9 +131,10 @@ prox_llegada_B = HORA_INICIO + gen_tll_B() if CON_PRIORIDAD else INF
 # CONTADORES
 # =============================================================================
 
-total_atendidos = 0   # clientes que completaron todos los puestos requeridos
-total_abandonos = 0
-resultados      = []
+total_atendidos  = 0   # clientes que completaron todos los puestos requeridos
+total_abandonos  = 0
+total_rechazados = 0   # clientes bloqueados por cola llena
+resultados       = []
 
 # =============================================================================
 # FUNCIONES AUXILIARES
@@ -179,7 +184,7 @@ def iniciar_en_puesto(p, t):
         zona_destino = p
         estado[p]    = 0
     else:
-        prox_fin[p] = t + gen_ts()
+        prox_fin[p] = t + gen_ts(p)
 
 def siguiente_de_cola_global():
     """Cola A tiene prioridad sobre B (globales)."""
@@ -188,6 +193,12 @@ def siguiente_de_cola_global():
     if cola_B:
         return cola_B, "B"
     return None, None
+
+def cola_llena():
+    """Devuelve True si la cola global alcanzó la capacidad máxima."""
+    if CAP_COLA is None:
+        return False
+    return (len(cola_A) + len(cola_B)) >= CAP_COLA
 
 def hay_cola_global():
     return bool(cola_A) or bool(cola_B)
@@ -329,6 +340,10 @@ while t_actual < T_MAX:
             p = puesto_libre_disponible()
             if p >= 0 and (not CON_ZONA_SEGURIDAD or estado_zona == 0):
                 iniciar_en_puesto(p, t_actual)
+            elif cola_llena():
+                total_rechazados += 1
+                registrar(t_actual, f"{etiqueta} — RECHAZADO (cola llena)")
+                continue
             else:
                 (cola_A if es_A else cola_B).append(nueva_entrada(t_actual))
             registrar(t_actual, etiqueta)
@@ -338,6 +353,10 @@ while t_actual < T_MAX:
             if estado[0] == 0 and presente[0] \
                     and (not CON_ZONA_SEGURIDAD or estado_zona == 0):
                 iniciar_en_puesto(0, t_actual)
+            elif cola_llena():
+                total_rechazados += 1
+                registrar(t_actual, f"{etiqueta} — RECHAZADO (cola llena)")
+                continue
             else:
                 (cola_A if es_A else cola_B).append(nueva_entrada(t_actual))
             registrar(t_actual, etiqueta)
@@ -349,7 +368,7 @@ while t_actual < T_MAX:
         prox_zona_ps = INF
         zona_destino = -1
         estado[p]    = 1
-        prox_fin[p]  = t_actual + gen_ts()
+        prox_fin[p]  = t_actual + gen_ts(p)
         registrar(t_actual, f"Llega a PS{p+1} (zona)")
 
     # ── FIN DE SERVICIO ───────────────────────────────────────────────────────
@@ -364,7 +383,7 @@ while t_actual < T_MAX:
             registrar(t_actual, f"Fin PS{p+1} → espera PS{sig_p+1}")
             if estado[sig_p] == 0 and presente[sig_p]:
                 estado[sig_p]    = 1
-                prox_fin[sig_p]  = t_actual + gen_ts()
+                prox_fin[sig_p]  = t_actual + gen_ts(sig_p)
                 registrar(t_actual, f"Inicia PS{sig_p+1}")
             else:
                 cola_serie[sig_p].append(nueva_entrada(t_actual))
@@ -399,7 +418,7 @@ while t_actual < T_MAX:
                 if cola_serie[p] and presente[p]:
                     cola_serie[p].pop(0)
                     estado[p]   = 1
-                    prox_fin[p] = t_actual + gen_ts()
+                    prox_fin[p] = t_actual + gen_ts(p)
                     registrar(t_actual, f"Reocupación PS{p+1}")
 
     # ── SALIDA DEL SERVIDOR ───────────────────────────────────────────────────
@@ -453,7 +472,7 @@ while t_actual < T_MAX:
                     if cola_serie[p]:
                         cola_serie[p].pop(0)
                         estado[p]   = 1
-                        prox_fin[p] = t_actual + gen_ts()
+                        prox_fin[p] = t_actual + gen_ts(p)
                         registrar(t_actual, f"Reocupación PS{p+1}")
 
     # ── ABANDONO ──────────────────────────────────────────────────────────────
@@ -540,8 +559,10 @@ print("=" * 55)
 print("   RESULTADOS TOTALES")
 print("=" * 55)
 print(f"   Modalidad:                          {modalidad_str}")
+print(f"   Capacidad máxima de cola:           {CAP_COLA if CAP_COLA else 'Sin límite'}")
 print(f"   Total de clientes atendidos:        {total_atendidos}")
 print(f"   Total de abandonos:                 {total_abandonos}")
+print(f"   Total de rechazados (cola llena):   {total_rechazados}")
 if total_ingresados > 0:
     print(f"   Total ingresados al sistema:        {total_ingresados}")
     print(f"   % atendidos:                        {total_atendidos/total_ingresados*100:.1f}%")
